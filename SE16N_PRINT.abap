@@ -1,4 +1,127 @@
 *&---------------------------------------------------------------------*
+*& Report ZCA_SE16N_MAIL
+*&---------------------------------------------------------------------*
+*& Über dieses Programm werden SE16N Varianten ausgewählt und im
+*& Anschluss die Daten entsprechend selektiert und via Email versendet
+*&
+*& Erstellt: 22.08.2025
+*& Entwickler: Guenther Wohlfart (extern)
+*&---------------------------------------------------------------------*
+REPORT zca_se16n_mail.
+
+INCLUDE zca_se16n_mail_cl.
+
+PARAMETERS: p_vari  TYPE variant OBLIGATORY,
+            p_rmail RADIOBUTTON GROUP r1 DEFAULT 'X' USER-COMMAND uc1,
+            p_rprin RADIOBUTTON GROUP r1.
+
+SELECTION-SCREEN BEGIN OF BLOCK selscr1 WITH FRAME TITLE TEXT-002.
+  PARAMETERS:
+    p_mail   TYPE ad_smtpadr MODIF ID m1,
+    p_subj   TYPE so_obj_des MODIF ID m1,
+    p_body_1 TYPE char255    LOWER CASE MODIF ID m1,
+    p_body_2 TYPE char255    LOWER CASE MODIF ID m1,
+    p_body_3 TYPE char255    LOWER CASE MODIF ID m1.
+SELECTION-SCREEN END OF BLOCK selscr1.
+
+SELECTION-SCREEN BEGIN OF BLOCK selscr2 WITH FRAME TITLE TEXT-003.
+  PARAMETERS:
+    p_pdest TYPE sypri_pdest MATCHCODE OBJECT prin MODIF ID p1,
+    p_pimm  TYPE pri_params-primm AS CHECKBOX MODIF ID p1.
+SELECTION-SCREEN END OF BLOCK selscr2.
+
+SELECTION-SCREEN BEGIN OF BLOCK selscr3 WITH FRAME TITLE TEXT-004.
+  PARAMETERS p_self_1 TYPE se16n_seltab-field.
+  SELECT-OPTIONS  s_sel_1 FOR sy-datum.
+  PARAMETERS p_self_2 TYPE se16n_seltab-field.
+  SELECT-OPTIONS s_sel_2 FOR sy-datum.
+  PARAMETERS p_self_3 TYPE se16n_seltab-field.
+  SELECT-OPTIONS s_sel_3 FOR sy-datum.
+SELECTION-SCREEN END OF BLOCK selscr3.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_vari.
+  DATA lt_return TYPE STANDARD TABLE OF ddshretval.
+
+  SELECT * FROM varit INTO TABLE @DATA(lt_values) WHERE langu = @sy-langu AND
+                                                        report = 'SE16N_BATCH'.
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield        = 'VARIANT'
+      value_org       = 'S'
+    TABLES
+      value_tab       = lt_values
+      return_tab      = lt_return
+    EXCEPTIONS
+      parameter_error = 1
+      no_values_found = 2
+      OTHERS          = 3.
+
+  IF sy-subrc NE 0.
+    RETURN.
+  ENDIF.
+
+  READ TABLE lt_return INTO DATA(ls_return) INDEX 1.
+  IF sy-subrc = 0.
+    p_vari = ls_return-fieldval.
+  ENDIF.
+
+AT SELECTION-SCREEN.
+  IF sy-ucomm = 'ONLI'.
+    IF p_rmail = abap_true AND
+       ( p_mail   IS INITIAL OR
+         p_subj   IS INITIAL OR
+         p_body_1 IS INITIAL ).
+      MESSAGE TEXT-005 TYPE 'E'.
+    ELSEIF p_rprin = abap_true AND
+           p_pdest IS INITIAL.
+      MESSAGE TEXT-006 TYPE 'E'.
+    ENDIF.
+  ENDIF.
+
+AT SELECTION-SCREEN OUTPUT.
+  LOOP AT SCREEN.
+    CASE screen-group1.
+      WHEN 'M1'.
+        IF p_rmail = abap_true.
+          screen-active = 1.
+          screen-invisible = 0.
+        ELSE.
+          screen-active = 0.
+          screen-invisible = 1.
+        ENDIF.
+        MODIFY SCREEN.
+      WHEN 'P1'.
+        IF p_rprin = abap_true.
+          screen-active = 1.
+          screen-invisible = 0.
+        ELSE.
+          screen-active = 0.
+          screen-invisible = 1.
+        ENDIF.
+        MODIFY SCREEN.
+    ENDCASE.
+  ENDLOOP.
+
+START-OF-SELECTION.
+  NEW lcl_email_report( )->process( iv_vari   = p_vari
+                                    iv_rmail  = p_rmail
+                                    iv_rprin  = p_rprin
+                                    iv_pdest  = p_pdest
+                                    iv_pimm   = p_pimm
+                                    iv_mail   = p_mail
+                                    iv_subj   = p_subj
+                                    iv_body_1 = p_body_1
+                                    iv_body_2 = p_body_2
+                                    iv_body_3 = p_body_3
+                                    iv_self_1 = p_self_1
+                                    iv_self_2 = p_self_2
+                                    iv_self_3 = p_self_3
+                                    it_sel_1  = s_sel_1[]
+                                    it_sel_2  = s_sel_2[]
+                                    it_sel_3  = s_sel_3[] ).
+
+
+*&---------------------------------------------------------------------*
 *& Include          ZCA_SE16N_MAIL_CL
 *&---------------------------------------------------------------------*
 *& 1) Create SE16N Batch variant
