@@ -124,14 +124,6 @@ START-OF-SELECTION.
 *&---------------------------------------------------------------------*
 *& Include          ZCA_SE16N_MAIL_CL
 *&---------------------------------------------------------------------*
-*& 1) Create SE16N Batch variant
-*& 2) Select variant same as SE16H (Batch) and send via Email or Print
-*&
-*& Pending implementation: Add the selection criteria to the email and 
-*& printout.
-*& Challenge: ALV output is used for printing to avoid creating an 
-*& Adobe forms, need to check if selection criteria can be displayed 
-*& too (Currently only 1 line is shown)
 
 CLASS lcl_email_report DEFINITION FINAL.
   PUBLIC SECTION.
@@ -158,7 +150,18 @@ CLASS lcl_email_report DEFINITION FINAL.
     METHODS create_csv_xstring IMPORTING it_data        TYPE STANDARD TABLE
                                          it_out         TYPE lty_tt_out
                                          iv_tab         TYPE se16n_tab
+                                         it_sel_tab     TYPE se16n_or_seltab_t OPTIONAL
                                RETURNING VALUE(rv_data) TYPE xstring.
+    METHODS : build_top_of_page IMPORTING iv_tab           TYPE se16n_tab
+                                          it_sel_tab       TYPE se16n_or_seltab_t
+                                RETURNING VALUE(ro_header) TYPE REF TO cl_salv_form_layout_grid.
+    METHODS : create_top_text IMPORTING is_sel_tab TYPE se16n_seltab
+                                        iv_field   TYPE scrtext_m
+                              EXPORTING ev_text    TYPE char200.
+    METHODS : build_seltab_mail IMPORTING it_sel_tab       TYPE se16n_or_seltab_t
+                                          iv_field         TYPE se16n_tab
+                                RETURNING VALUE(rv_string) TYPE string.
+
 ENDCLASS.
 
 
@@ -236,10 +239,13 @@ CLASS lcl_email_report IMPLEMENTATION.
 
     " --- Read variant ---
     CALL FUNCTION 'RS_VARIANT_CONTENTS'
-      EXPORTING  report  = 'SE16N_BATCH'
-                 variant = iv_vari
-      TABLES     valutab = lt_valutab
-      EXCEPTIONS OTHERS  = 1.
+      EXPORTING
+        report  = 'SE16N_BATCH'
+        variant = iv_vari
+      TABLES
+        valutab = lt_valutab
+      EXCEPTIONS
+        OTHERS  = 1.
 
     IF sy-subrc <> 0.
       MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
@@ -326,7 +332,7 @@ CLASS lcl_email_report IMPLEMENTATION.
                                    sign   = ls_sel_1-sign
                                    option = ls_sel_1-option
                                    low    = ls_sel_1-low
-                                   high   = ls_sel_1-high )
+                                   high   = COND #( WHEN ls_sel_1-high = '00000000' THEN '' ELSE ls_sel_1-high ) )
                TO <ls_or_selfields>-seltab.
       ENDLOOP.
       LOOP AT it_sel_2 INTO DATA(ls_sel_2).
@@ -334,7 +340,7 @@ CLASS lcl_email_report IMPLEMENTATION.
                                    sign   = ls_sel_2-sign
                                    option = ls_sel_2-option
                                    low    = ls_sel_2-low
-                                   high   = ls_sel_2-high )
+                                   high   = COND #( WHEN ls_sel_2-high = '00000000' THEN '' ELSE ls_sel_2-high ) )
                TO <ls_or_selfields>-seltab.
       ENDLOOP.
       LOOP AT it_sel_3 INTO DATA(ls_sel_3).
@@ -342,53 +348,58 @@ CLASS lcl_email_report IMPLEMENTATION.
                                    sign   = ls_sel_3-sign
                                    option = ls_sel_3-option
                                    low    = ls_sel_3-low
-                                   high   = ls_sel_3-high )
+                                   high   = COND #( WHEN ls_sel_3-high = '00000000' THEN '' ELSE ls_sel_3-high ) )
                TO <ls_or_selfields>-seltab.
       ENDLOOP.
-    ENDIF.
 
+      DATA(lt_seltab) =  <ls_or_selfields>-seltab.
+    ENDIF.
     " --- Call SE16N_INTERFACE  ---
     CALL FUNCTION 'SE16N_INTERFACE'
-      EXPORTING  i_tab                 = i_tab
-                 i_no_txt              = i_no_txt
-                 i_max_lines           = i_max
-                 i_line_det            = i_line
-                 i_display             = abap_false
-                 i_clnt_spez           = i_clnt
-                 i_variant             = i_vari
-                 i_tech_names          = i_tech
-                 i_cwidth_opt_off      = i_cwid
-                 i_scroll              = i_roll
-                 i_no_convexit         = i_conv
-                 i_layout_get          = i_lget
-                 i_add_field           = i_add_f
-                 i_add_fields_on       = i_add_on
-                 i_uname               = i_uname
-                 i_hana_active         = i_hana
-                 i_dbcon               = i_dbcon
-                 i_ojkey               = i_ojkey
-                 i_formula_name        = i_formul
-                 i_mincnt              = i_mincnt
-                 i_fda                 = i_fda
-                 i_extract_read        = i_exread
-                 i_extract_write       = i_exwrit
-                 i_extract_name        = i_exname
-                 i_extract_uname       = i_exunam
-      IMPORTING  e_line_nr             = lv_lines
-                 e_dref                = lr_pay_data
-      TABLES     it_or_selfields       = lt_or_selfields
-                 it_output_fields      = lt_out
-                 it_add_up_curr_fields = lt_curr_add_up
-                 it_add_up_quan_fields = lt_quan_add_up
-                 it_sum_up_fields      = lt_sum_up
-                 it_having_fields      = lt_having
-                 it_group_by_fields    = lt_group_by
-                 it_order_by_fields    = lt_order_by
-                 it_toplow_fields      = lt_toplow
-                 it_sortorder_fields   = lt_sortorder
-                 it_aggregate_fields   = lt_aggregate
-      EXCEPTIONS no_values             = 1
-                 OTHERS                = 2.
+      EXPORTING
+        i_tab                 = i_tab
+        i_no_txt              = i_no_txt
+        i_max_lines           = i_max
+        i_line_det            = i_line
+        i_display             = abap_false
+        i_clnt_spez           = i_clnt
+        i_variant             = i_vari
+        i_tech_names          = i_tech
+        i_cwidth_opt_off      = i_cwid
+        i_scroll              = i_roll
+        i_no_convexit         = i_conv
+        i_layout_get          = i_lget
+        i_add_field           = i_add_f
+        i_add_fields_on       = i_add_on
+        i_uname               = i_uname
+        i_hana_active         = i_hana
+        i_dbcon               = i_dbcon
+        i_ojkey               = i_ojkey
+        i_formula_name        = i_formul
+        i_mincnt              = i_mincnt
+        i_fda                 = i_fda
+        i_extract_read        = i_exread
+        i_extract_write       = i_exwrit
+        i_extract_name        = i_exname
+        i_extract_uname       = i_exunam
+      IMPORTING
+        e_line_nr             = lv_lines
+        e_dref                = lr_pay_data
+      TABLES
+        it_or_selfields       = lt_or_selfields
+        it_output_fields      = lt_out
+        it_add_up_curr_fields = lt_curr_add_up
+        it_add_up_quan_fields = lt_quan_add_up
+        it_sum_up_fields      = lt_sum_up
+        it_having_fields      = lt_having
+        it_group_by_fields    = lt_group_by
+        it_order_by_fields    = lt_order_by
+        it_toplow_fields      = lt_toplow
+        it_sortorder_fields   = lt_sortorder
+        it_aggregate_fields   = lt_aggregate
+      EXCEPTIONS
+        no_values             = 1
+        OTHERS                = 2.
 
     IF sy-subrc <> 0 OR lv_lines = 0.
       MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
@@ -410,7 +421,10 @@ CLASS lcl_email_report IMPLEMENTATION.
 
           lo_salv->get_display_settings( )->set_list_header(
               |System: { sy-sysid } - Tabelle: { i_tab } - Variante: { iv_vari }| ).
-
+          DATA(lo_topofpage) = build_top_of_page( iv_tab         = i_tab
+                                                  it_sel_tab  = lt_seltab ).
+          lo_salv->set_top_of_list( lo_topofpage ).
+          lo_salv->set_top_of_list_print( lo_topofpage ).
           lo_salv->get_functions( )->set_all( ).
           lo_salv->get_columns( )->set_optimize( abap_true ).
 
@@ -426,15 +440,18 @@ CLASS lcl_email_report IMPLEMENTATION.
           lo_print->set_print_only( 'N' ).
 
           CALL FUNCTION 'GET_PRINT_PARAMETERS'
-            EXPORTING  copies                 = '1'
-                       destination            = iv_pdest
-                       immediately            = iv_pimm
-                       no_dialog              = abap_true
-            IMPORTING  out_parameters         = ls_pctl-pri_params
-            EXCEPTIONS archive_info_not_found = 1
-                       invalid_print_params   = 2
-                       invalid_archive_params = 3
-                       OTHERS                 = 4.
+            EXPORTING
+              copies                 = '1'
+              destination            = iv_pdest
+              immediately            = iv_pimm
+              no_dialog              = abap_true
+            IMPORTING
+              out_parameters         = ls_pctl-pri_params
+            EXCEPTIONS
+              archive_info_not_found = 1
+              invalid_print_params   = 2
+              invalid_archive_params = 3
+              OTHERS                 = 4.
           IF sy-subrc <> 0.
             MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
                     WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
@@ -455,13 +472,16 @@ CLASS lcl_email_report IMPLEMENTATION.
     " --- Email Versand
     IF iv_rmail = abap_true.
 
-      lv_csv_x = create_csv_xstring( it_data = <lt_pay_data>
-                                     it_out  = lt_out
-                                     iv_tab  = i_tab ).
+      lv_csv_x = create_csv_xstring( it_data    = <lt_pay_data>
+                                     it_out     = lt_out
+                                     iv_tab     = i_tab
+                                     it_sel_tab = lt_seltab ).
 
       CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
-        EXPORTING buffer     = lv_csv_x
-        TABLES    binary_tab = lt_csv_x.
+        EXPORTING
+          buffer     = lv_csv_x
+        TABLES
+          binary_tab = lt_csv_x.
 
       TRY.
           DATA(lo_send_request) = cl_bcs=>create_persistent( ).
@@ -494,6 +514,7 @@ CLASS lcl_email_report IMPLEMENTATION.
           lo_send_request->set_document( lo_document ).
           lo_send_request->send( i_with_error_screen = abap_true ).
           COMMIT WORK.
+          MESSAGE text-001 TYPE 'S'.
 
         CATCH cx_send_req_bcs
               cx_document_bcs
@@ -512,15 +533,19 @@ CLASS lcl_email_report IMPLEMENTATION.
     DATA lv_tabname    TYPE ddobjname.
 
     lv_tabname = iv_tab.
-
+    DATA(lv_seltab_string) = build_seltab_mail( EXPORTING it_sel_tab = it_sel_tab
+                                                          iv_field   = iv_tab ).
     CALL FUNCTION 'DDIF_FIELDINFO_GET'
-      EXPORTING  tabname        = lv_tabname
-                 langu          = sy-langu
-                 all_types      = 'X'
-      TABLES     dfies_tab      = lt_dd03l
-      EXCEPTIONS not_found      = 1
-                 internal_error = 2
-                 OTHERS         = 3.
+      EXPORTING
+        tabname        = lv_tabname
+        langu          = sy-langu
+        all_types      = 'X'
+      TABLES
+        dfies_tab      = lt_dd03l
+      EXCEPTIONS
+        not_found      = 1
+        internal_error = 2
+        OTHERS         = 3.
     IF sy-subrc <> 0.
       " No handler
     ENDIF.
@@ -566,7 +591,8 @@ CLASS lcl_email_report IMPLEMENTATION.
       " Add line to csv string
       CONCATENATE lv_csv_string lv_line INTO lv_csv_string SEPARATED BY cl_abap_char_utilities=>newline.
     ENDLOOP.
-
+*...// Add the selection tab string to the mail string.
+    CONCATENATE lv_seltab_string lv_csv_string INTO lv_csv_string  SEPARATED BY cl_abap_char_utilities=>newline.
     " Convert to UTF-8 and xstring
     TRY.
         rv_data = cl_bcs_convert=>string_to_xstring( iv_string     = lv_csv_string
@@ -577,5 +603,117 @@ CLASS lcl_email_report IMPLEMENTATION.
         MESSAGE lo_exc_bcs->get_text( ) TYPE 'E'.
 
     ENDTRY.
+  ENDMETHOD.
+*...// Build the top of page with the variant selection data
+  METHOD build_top_of_page.
+    DATA lv_tabname    TYPE ddobjname.
+    DATA lt_dd03l      TYPE STANDARD TABLE OF dfies.
+    DATA lv_row        TYPE i.
+    DATA lo_label      TYPE REF TO cl_salv_form_label.
+
+    lv_tabname = iv_tab.
+    ro_header = NEW cl_salv_form_layout_grid( ).
+
+*...// Get the DDIC field names of selected Table
+    CALL FUNCTION 'DDIF_FIELDINFO_GET'
+      EXPORTING
+        tabname        = lv_tabname
+        langu          = sy-langu
+        all_types      = abap_true
+      TABLES
+        dfies_tab      = lt_dd03l
+      EXCEPTIONS
+        not_found      = 1
+        internal_error = 2
+        OTHERS         = 3.
+    IF sy-subrc <> 0.
+      " No handler
+    ENDIF.
+
+    LOOP AT it_sel_tab ASSIGNING FIELD-SYMBOL(<ls_sel_tab>).
+      lv_row = sy-tabix .
+      READ TABLE lt_dd03l INTO DATA(ls_dd03l) WITH KEY fieldname = <ls_sel_tab>-field.
+      IF sy-subrc = 0.
+        DATA(lv_column_text) = ls_dd03l-scrtext_m.
+        create_top_text( EXPORTING is_sel_tab = <ls_sel_tab>
+                           iv_field   = ls_dd03l-scrtext_m
+                 IMPORTING  ev_text    = DATA(lv_text) ).
+*...// Create the text
+        lo_label = ro_header->create_label( row = lv_row column = 1 ).
+        lo_label->set_text( lv_text ).
+      ENDIF.
+    ENDLOOP.
+
+  ENDMETHOD.
+  METHOD create_top_text.
+    CONSTANTS lv_include TYPE char10 VALUE 'Include'.
+    CONSTANTS lv_exclude TYPE char10 VALUE 'Exclude'.
+    CONSTANTS lv_to      TYPE char2  VALUE '-'.
+    CONSTANTS lv_till    TYPE char4  VALUE 'TILL'.
+
+    IF is_sel_tab-sign = 'I'.
+      DATA(lv_sign) = lv_include.
+    ELSE.
+      lv_sign = lv_exclude.
+    ENDIF.
+    IF is_sel_tab-option IS INITIAL.
+      IF is_sel_tab-high IS INITIAL.
+        DATA(lv_option) = 'EQ' .
+      ELSE.
+        lv_option = 'BT' .
+      ENDIF.
+    ELSE.
+      lv_option = is_sel_tab-option .
+    ENDIF.
+    IF is_sel_tab-low IS NOT INITIAL AND is_sel_tab-high IS NOT INITIAL.
+      ev_text = |{ iv_field } [{ lv_sign }, { lv_option }]: { is_sel_tab-low } { lv_to } { is_sel_tab-high } |.
+    ELSEIF is_sel_tab-low IS NOT INITIAL AND is_sel_tab-high IS INITIAL.
+      ev_text = |{ iv_field } [{ lv_sign }, { lv_option }]: { is_sel_tab-low } |.
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD build_seltab_mail.
+    DATA lv_tabname    TYPE ddobjname.
+    DATA lt_dd03l      TYPE STANDARD TABLE OF dfies.
+    DATA lv_row        TYPE i.
+    DATA lo_label      TYPE REF TO cl_salv_form_label.
+
+    lv_tabname = iv_field.
+
+*...// Get the DDIC field names of selected Table
+    CALL FUNCTION 'DDIF_FIELDINFO_GET'
+      EXPORTING
+        tabname        = lv_tabname
+        langu          = sy-langu
+        all_types      = abap_true
+      TABLES
+        dfies_tab      = lt_dd03l
+      EXCEPTIONS
+        not_found      = 1
+        internal_error = 2
+        OTHERS         = 3.
+    IF sy-subrc <> 0.
+      " No handler
+    ENDIF.
+
+    LOOP AT it_sel_tab ASSIGNING FIELD-SYMBOL(<ls_sel_tab>).
+      lv_row = sy-tabix .
+      READ TABLE lt_dd03l INTO DATA(ls_dd03l) WITH KEY fieldname = <ls_sel_tab>-field.
+      IF sy-subrc = 0.
+        DATA(lv_column_text) = ls_dd03l-scrtext_m.
+        create_top_text( EXPORTING is_sel_tab = <ls_sel_tab>
+                                   iv_field   = ls_dd03l-scrtext_m
+                         IMPORTING ev_text    = DATA(lv_text) ).
+*...// Create the text
+        IF rv_string IS INITIAL.
+          rv_string = lv_text.
+          CONCATENATE rv_string cl_abap_char_utilities=>newline INTO rv_string.
+        ELSE.
+          CONCATENATE rv_string lv_text cl_abap_char_utilities=>newline INTO rv_string.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+
   ENDMETHOD.
 ENDCLASS.
